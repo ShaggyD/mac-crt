@@ -53,7 +53,8 @@ final class CaptureEngine {
     /// compositor upscale 2x into the drawable — a uniformly soft picture, and
     /// enough resampling to erase fine scanline patterns entirely.
     func start(targets: [CGDirectDisplayID: CGSize],
-               excludingWindowNumbers: [CGWindowID]) {
+               excludingWindowNumbers: [CGWindowID],
+               includeCursor: Bool) {
         guard streams.isEmpty else { return }
         generation += 1
         let gen = generation
@@ -79,10 +80,13 @@ final class CaptureEngine {
                     config.queueDepth = 3
                     config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
                     // The real cursor is composited by the window server *above*
-                    // every window, so it already appears on top of our overlay at
-                    // zero latency. Baking it into the captured frame would add a
-                    // lagging duplicate.
-                    config.showsCursor = false
+                    // every window, so when it is left visible it sits on top of
+                    // this overlay untinted and at zero latency. To make the
+                    // cursor part of the effect we hide it and let ScreenCaptureKit
+                    // bake it into the frame instead, so the shader tints and
+                    // scanlines it along with everything else. That trades a frame
+                    // of lag for a cursor that belongs to the picture.
+                    config.showsCursor = includeCursor
 
                     let sink = StreamSink(displayID: id, engine: self)
                     let stream = SCStream(filter: filter, configuration: config, delegate: nil)

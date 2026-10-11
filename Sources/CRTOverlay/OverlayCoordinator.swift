@@ -95,6 +95,7 @@ final class OverlayCoordinator {
             }
             self.onCaptureStateChange?(state)
             self.recordCaptureState(state)
+            self.updateCursorVisibility()
         }
     }
 
@@ -158,7 +159,8 @@ final class OverlayCoordinator {
                     // two are never applied to the same frame.
                     DisplayLUT.reset()
                     capture.start(targets: captureTargets(),
-                                  excludingWindowNumbers: overlays.map { CGWindowID($0.windowNumber) })
+                                  excludingWindowNumbers: overlays.map { CGWindowID($0.windowNumber) },
+                                  includeCursor: settings.includeCursor)
                 }
             } else if appliedCaptureEngine {
                 capture.stop()
@@ -184,7 +186,23 @@ final class OverlayCoordinator {
             DisplayLUT.reset()
             for overlay in overlays { overlay.orderOut(nil) }
         }
+        updateCursorVisibility()
         updateClock()
+    }
+
+    /// Only hide the pointer when the effect is genuinely painting it back from
+    /// the captured frame. In every other state the real cursor must stay
+    /// visible, or the mouse disappears with nothing drawn in its place.
+    private func updateCursorVisibility() {
+        let shouldHide = settings.enabled
+            && settings.useCaptureEngine
+            && settings.includeCursor
+            && captureState.isRunning
+        if shouldHide {
+            SystemCursor.hide()
+        } else {
+            SystemCursor.show()
+        }
     }
 
     /// Colour via the LUT engine on a transparent overlay.
@@ -201,6 +219,8 @@ final class OverlayCoordinator {
         timer = nil
         capture.stop()
         DisplayLUT.reset()
+        // Never leave the machine with an invisible pointer.
+        SystemCursor.show()
         for overlay in overlays { overlay.orderOut(nil) }
     }
 

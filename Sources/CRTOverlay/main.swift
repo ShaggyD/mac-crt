@@ -7,10 +7,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Heal any colour state left behind by a previous crash: a gamma table
-        // survives the process that set it, so a clean slate on every launch is
-        // the only way to guarantee the display is never stuck tinted.
+        // Heal any state left behind by a previous crash: a gamma table survives
+        // the process that set it, and so does the cursor hide counter. A clean
+        // slate on every launch is the only way to guarantee the display is not
+        // stuck tinted and the pointer is not stuck invisible.
         CGDisplayRestoreColorSyncSettings()
+        SystemCursor.heal()
 
         installSignalHandlers()
 
@@ -45,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
             source.setEventHandler {
                 DisplayLUT.reset()
+                SystemCursor.show()
                 NSApp.terminate(nil)
             }
             source.resume()
@@ -59,7 +62,9 @@ let app = NSApplication.shared
 
 if CommandLine.arguments.contains("--reset") {
     CGDisplayRestoreColorSyncSettings()
-    print("Display colour state reset.")
+    // Also un-hide the pointer: a stuck invisible cursor is the worse failure.
+    SystemCursor.heal()
+    print("Display colour state and cursor visibility reset.")
     exit(0)
 }
 

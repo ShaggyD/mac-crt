@@ -71,6 +71,7 @@ final class SettingsPanel: NSPanel {
     private let modeControl: NSSegmentedControl
     private let noticeLabel = NSTextField(labelWithString: "")
     private let captureSwitch = NSSwitch()
+    private let cursorSwitch = NSSwitch()
     private let captureStatus = NSTextField(labelWithString: "")
     private var sliderRows: [SliderRow] = []
     private var openSystemSettingsButton: NSButton?
@@ -149,6 +150,24 @@ final class SettingsPanel: NSPanel {
         openSystemSettingsButton?.bezelStyle = .rounded
         openSystemSettingsButton?.isHidden = true
         if let button = openSystemSettingsButton { root.addArrangedSubview(button) }
+
+        let cursorTitle = NSTextField(labelWithString: "CRT cursor")
+        cursorSwitch.target = self
+        cursorSwitch.action = #selector(cursorToggled)
+        let cursorRow = NSStackView(views: [cursorTitle, flexible(), cursorSwitch])
+        cursorRow.orientation = .horizontal
+        cursorRow.spacing = 8
+        root.addArrangedSubview(cursorRow)
+
+        let cursorHint = NSTextField(labelWithString:
+            "Tints the pointer with the rest of the picture by capturing it and "
+            + "hiding the real one. Costs about one frame of lag. Off leaves the "
+            + "native cursor crisp on top.")
+        cursorHint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        cursorHint.textColor = .tertiaryLabelColor
+        cursorHint.preferredMaxLayoutWidth = 360
+        cursorHint.lineBreakMode = .byWordWrapping
+        root.addArrangedSubview(cursorHint)
 
         root.addArrangedSubview(separator())
 
@@ -236,21 +255,33 @@ final class SettingsPanel: NSPanel {
         let modeIndex = CRTMode.allCases.firstIndex(of: settings.mode) ?? 0
         modeControl.selectedSegment = modeIndex
         captureSwitch.state = settings.useCaptureEngine ? .on : .off
+        cursorSwitch.state = settings.includeCursor ? .on : .off
 
         // Must out-rank the overlay window or the panel is hidden behind it.
         level = settings.enabled && settings.useCaptureEngine
             ? NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)) + 1)
             : .floating
 
-        let needsCapture = settings.mode.requiresCaptureEngine
-        noticeLabel.isHidden = !(needsCapture && !settings.useCaptureEngine)
-        noticeLabel.stringValue = "\(settings.mode.displayName) needs the True CRT engine — "
-            + "a per-channel colour table cannot desaturate."
-
         let permitted = CaptureEngine.hasPermission()
+
+        // The engine is only actually working when it is both requested AND
+        // permitted. Testing the request alone hid this warning from anyone who
+        // had switched the engine on while it was silently failing.
+        let captureLive = settings.useCaptureEngine && permitted
+        let needsCapture = settings.mode.requiresCaptureEngine
+        noticeLabel.isHidden = !(needsCapture && !captureLive)
+        if needsCapture && !captureLive {
+            noticeLabel.stringValue = permitted
+                ? "\(settings.mode.displayName) needs the True CRT engine, which is not switched on. "
+                    + "A per-channel colour table can cast but cannot desaturate."
+                : "\(settings.mode.displayName) is doing nothing right now. The True CRT engine is "
+                    + "blocked because Screen Recording is not granted, and the colour-table "
+                    + "fallback cannot desaturate — it only casts."
+        }
+
         captureStatus.stringValue = permitted
             ? "Captures the desktop so the shader can truly desaturate. Adds ~1 frame of latency; DRM video shows black."
-            : "Requires Screen Recording permission. The real cursor still renders above the overlay at zero latency."
+            : "Blocked: Screen Recording is not granted. Click below, enable CRT Overlay, then relaunch (macOS only applies a new grant at launch)."
         openSystemSettingsButton?.isHidden = permitted
 
         // Re-seat sliders from the model so menu-driven changes stay in sync.
@@ -302,6 +333,11 @@ final class SettingsPanel: NSPanel {
 
     @objc private func openScreenRecordingSettings() {
         SettingsPanel.openScreenRecordingSettings()
+    }
+
+    @objc private func cursorToggled() {
+        settings.includeCursor = cursorSwitch.state == .on
+        refresh()
     }
 
     static func openScreenRecordingSettings() {

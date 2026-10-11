@@ -18,6 +18,10 @@ final class Settings {
     var enabled: Bool = false            { didSet { changed() } }
     var mode: CRTMode = .amber           { didSet { changed() } }
     var useCaptureEngine: Bool = false   { didSet { changed() } }
+    /// Bake the cursor into the captured frame and hide the real one, so the
+    /// pointer is tinted and scanlined with everything else. Costs ~1 frame of
+    /// lag. Only meaningful on the capture engine.
+    var includeCursor: Bool = true       { didSet { changed() } }
 
     /// 0 = original colours, 1 = only the selected phosphor colour.
     /// On the capture engine this is a true saturation control.
@@ -42,6 +46,7 @@ final class Settings {
         var enabled: Bool
         var mode: CRTMode
         var useCaptureEngine: Bool
+        var includeCursor: Bool?
         var tintIntensity: Double
         var contrast: Double?
         var scanlineIntensity: Double
@@ -82,6 +87,7 @@ final class Settings {
         enabled = false
         mode = .amber
         useCaptureEngine = false
+        includeCursor = true
         tintIntensity = 1.00
         contrast = 1.00
         scanlineIntensity = 0.35
@@ -103,6 +109,7 @@ final class Settings {
     private func persist() {
         let snap = Snapshot(
             enabled: enabled, mode: mode, useCaptureEngine: useCaptureEngine,
+            includeCursor: includeCursor,
             tintIntensity: tintIntensity, contrast: contrast,
             scanlineIntensity: scanlineIntensity,
             scanlinePitch: scanlinePitch, curvature: curvature,
@@ -120,6 +127,8 @@ final class Settings {
         enabled = snap.enabled
         mode = snap.mode
         useCaptureEngine = snap.useCaptureEngine
+        // Absent in settings written before the cursor option existed.
+        includeCursor = snap.includeCursor ?? true
         tintIntensity = snap.tintIntensity
         // Settings written before contrast existed default to neutral.
         contrast = snap.contrast ?? 1.0
