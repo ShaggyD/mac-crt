@@ -29,6 +29,9 @@ final class OverlayCoordinator {
     /// from capture state changes, and without this the two call each other
     /// until the capture request never gets a chance to complete.
     private var syncing = false
+    /// Screen Recording can only be requested on the main thread, and asking on
+    /// every settings tick would spam the user, so ask once per launch.
+    private var didRequestCapturePermission = false
 
     private(set) var captureState: CaptureState = .idle
     var onCaptureStateChange: ((CaptureState) -> Void)?
@@ -77,18 +80,44 @@ final class OverlayCoordinator {
             guard let self else { return }
             self.captureState = state
             switch state {
-            case .running, .failed, .idle:
+            case .running:
+                self.isStartingCapture = false
+                // Capture now owns colour. The fallback LUT was applied while the
+                // stream spun up, so it has to be dropped here or the frame gets
+                // the capture engine's colour *and* a second LUT cast on top.
+                DisplayLUT.reset()
+            case .failed:
+                self.isStartingCapture = false
+                // Never leave the user with bare scanlines over an untinted
+                // desktop just because the stream died.
+                self.applyFallbackColour()
+            case .idle:
                 self.isStartingCapture = false
             case .starting:
                 break
             }
-            if case .failed = state {
-                // Never leave the user with bare scanlines over an untinted
-                // desktop just because the stream died.
-                self.applyFallbackColour()
-            }
             self.onCaptureStateChange?(state)
+            self.recordCaptureState(state)
         }
+    }
+
+    /// Writes the last capture outcome to Application Support. The menu shows
+    /// this too, but a file survives a relaunch and makes "why is it only
+    /// casting, not truly monochrome?" answerable without guessing.
+    private func recordCaptureState(_ state: CaptureState) {
+        let dir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("CRTOverlay", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let text: String
+        switch state {
+        case .idle:            text = "idle"
+        case .starting:        text = "starting"
+        case .running:         text = "running"
+        case .failed(let why): text = "failed: \(why)"
+        }
+        try? text.write(to: dir.appendingPathComponent("capture-state.txt"),
+                        atomically: true, encoding: .utf8)
     }
 
     // MARK: - Lifecycle
@@ -120,6 +149,15 @@ final class OverlayCoordinator {
             ensureOverlays()
 
             let wantCapture = settings.useCaptureEngine
+            if wantCapture && !CaptureEngine.hasPermission() {
+                // Nudge the system into showing its prompt and, more importantly,
+                // listing the app under Privacy & Security > Screen Recording.
+                // Without this the grant is unreachable for a bundled app.
+                if !didRequestCapturePermission {
+                    didRequestCapturePermission = true
+                    CaptureEngine.requestPermission()
+                }
+            }
             if wantCapture {
                 if !appliedCaptureEngine && !isStartingCapture {
                     isStartingCapture = true

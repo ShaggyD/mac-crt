@@ -58,7 +58,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         captureItem.target = self
         captureItem.action = #selector(toggleCapture)
         captureItem.state = settings.useCaptureEngine ? .on : .off
-        captureItem.isEnabled = CaptureEngine.hasPermission()
+        // Stays clickable even without permission: clicking is what triggers the
+        // system prompt. Disabling it made the grant unreachable.
+        captureItem.isEnabled = true
 
         statusLine.attributedTitle = statusTitle()
     }
