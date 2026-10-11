@@ -10,6 +10,11 @@ final class Settings {
     /// Fired after any mutation, once the value has already been stored.
     var onChange: (() -> Void)?
 
+    /// When false, mutations still notify observers but are never written to
+    /// disk. `--selftest` needs this: exercising every mode used to run through
+    /// `resetToDefaults()` and silently wipe the user's saved look.
+    var persistenceEnabled = true
+
     var enabled: Bool = false            { didSet { changed() } }
     var mode: CRTMode = .amber           { didSet { changed() } }
     var useCaptureEngine: Bool = false   { didSet { changed() } }
@@ -91,7 +96,7 @@ final class Settings {
 
     private func changed() {
         guard !loading else { return }
-        persist()
+        if persistenceEnabled { persist() }
         onChange?()
     }
 

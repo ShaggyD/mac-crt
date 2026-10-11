@@ -71,7 +71,9 @@ if CommandLine.arguments.contains("--check-access") {
 if CommandLine.arguments.contains("--selftest") {
     // Exercises the parts that only fail at runtime: Metal pipeline creation and
     // the whole settings-panel construction/refresh path across every mode.
+    // Persistence is suspended so a diagnostic run cannot clobber saved settings.
     app.setActivationPolicy(.accessory)
+    Settings.shared.persistenceEnabled = false
     do {
         let coordinator = try OverlayCoordinator()
         let panel = SettingsPanel()

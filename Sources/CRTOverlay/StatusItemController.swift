@@ -70,11 +70,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if !settings.enabled {
             text = "Idle"
         } else if settings.useCaptureEngine {
-            switch coordinator.captureState {
-            case .running:        text = "True CRT · \(settings.mode.displayName)"
-            case .starting:       text = "True CRT · starting…"
-            case .failed(let m):  text = "True CRT failed · \(m)"
-            case .idle:           text = "True CRT · idle"
+            if !CaptureEngine.hasPermission() {
+                text = "True CRT blocked · Screen Recording not granted"
+            } else {
+                switch coordinator.captureState {
+                case .running:        text = "True CRT · \(settings.mode.displayName)"
+                case .starting:       text = "True CRT · starting…"
+                case .failed(let m):  text = "True CRT failed · \(m)"
+                case .idle:           text = "True CRT · idle"
+                }
             }
         } else {
             text = "Colour table · \(settings.mode.displayName)"
@@ -93,13 +97,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func toggleCapture() {
-        if !settings.useCaptureEngine && !CaptureEngine.hasPermission() {
+        let wantOn = !settings.useCaptureEngine
+        if wantOn && !CaptureEngine.hasPermission() {
+            // Asking is the only way to get listed under Screen Recording.
+            // Permission is triggered from an explicit click, never at launch,
+            // because the request blocks until the user answers.
             CaptureEngine.requestPermission()
+            settings.useCaptureEngine = true
             SettingsPanel.showPermissionAlert()
-            panel.refresh()
-            return
+        } else {
+            settings.useCaptureEngine = wantOn
         }
-        settings.useCaptureEngine.toggle()
         panel.refresh()
     }
 

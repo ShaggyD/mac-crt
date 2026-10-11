@@ -135,6 +135,32 @@ CRTOverlay --reset          # restore display colour state
 CRTOverlay --selftest       # build Metal pipeline + settings panel, then exit
 ```
 
+`--check-access` run from a terminal reports the **terminal's** permission, not
+the app's: a directly-executed binary inherits the calling process's TCC
+identity. That is a useful development shortcut — `make dev` runs with your
+terminal's grant and skips the one-time prompt — but it also means the app can
+look verified while the *bundled* app is silently falling back.
+
+The authoritative answer for the shipped app is written on every capture state
+change:
+
+```sh
+cat ~/Library/Application\ Support/CRTOverlay/capture-state.txt
+# running
+# failed: Screen Recording permission was declined.
+```
+
+## Granting Screen Recording
+
+A new grant only takes effect at launch, so the sequence is:
+
+1. Menu bar → **True CRT Engine** (this triggers the system prompt)
+2. System Settings ▸ Privacy & Security ▸ **Screen Recording** → enable **CRT Overlay**
+3. **Relaunch** the app
+
+Until then the app runs the colour-table engine and the menu says
+*"True CRT blocked · Screen Recording not granted"*.
+
 ## Layout
 
 ```
