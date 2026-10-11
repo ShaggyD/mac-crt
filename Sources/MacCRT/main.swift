@@ -97,6 +97,59 @@ if CommandLine.arguments.contains("--selftest") {
     }
 }
 
+if CommandLine.arguments.contains("--selftest-capture") {
+    // Invasive integration test: brings the effect up for real, then changes the
+    // frame rate and confirms the stream is rebuilt rather than left dead. Only
+    // meaningful with Screen Recording granted, so it skips cleanly without it.
+    app.setActivationPolicy(.accessory)
+    Settings.shared.persistenceEnabled = false
+    guard CaptureEngine.hasPermission() else {
+        print("selftest-capture SKIPPED: Screen Recording not granted")
+        exit(0)
+    }
+    do {
+        let coordinator = try OverlayCoordinator()
+        let settings = Settings.shared
+        settings.enabled = true
+        settings.useCaptureEngine = true
+        settings.includeCursor = false
+        settings.frameRate = 60
+        coordinator.start()
+
+        func settle(_ label: String) -> Bool {
+            for _ in 0..<100 {
+                switch coordinator.captureState {
+                case .running:
+                    print("  \(label): running")
+                    return true
+                case .failed(let why):
+                    print("  \(label): FAILED \(why)")
+                    return false
+                default:
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                }
+            }
+            print("  \(label): timed out")
+            return false
+        }
+
+        var ok = settle("60 fps")
+        settings.frameRate = 30
+        coordinator.sync()
+        ok = settle("30 fps after change") && ok
+        settings.frameRate = 60
+        coordinator.sync()
+        ok = settle("60 fps after change") && ok
+
+        coordinator.shutdown()
+        print(ok ? "selftest-capture ok" : "selftest-capture FAILED")
+        exit(ok ? 0 : 1)
+    } catch {
+        print("selftest-capture FAILED: \(error.localizedDescription)")
+        exit(1)
+    }
+}
+
 app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()
 app.delegate = delegate

@@ -180,8 +180,7 @@ final class SettingsPanel: NSPanel {
              { String(format: "%.2fx", $0) },
              { [weak self] in self?.settings.contrast = $0 }),
             ("Scanlines", Double(settings.scanlineIntensity), 0...1, { String(format: "%.0f%%", $0 * 100) },
-             { [weak self] in self?.settings.scanlineIntensity = $0 }),
-            ("Line pitch", Double(settings.scanlinePitch), 1...8, { String(format: "%.1f px", $0) },
+             { [weak self] in self?.settings.scanlineIntensity = $0 }),            ("Line pitch", Double(settings.scanlinePitch), 1...8, { String(format: "%.1f px", $0) },
              { [weak self] in self?.settings.scanlinePitch = $0 }),
             ("Curvature", Double(settings.curvature), 0...0.5, { String(format: "%.2f", $0) },
              { [weak self] in self?.settings.curvature = $0 }),
@@ -191,6 +190,9 @@ final class SettingsPanel: NSPanel {
              { [weak self] in self?.settings.bloom = $0 }),
             ("Flicker", Double(settings.flicker), 0...0.2, { String(format: "%.2f", $0) },
              { [weak self] in self?.settings.flicker = $0 }),
+            ("Frame rate", Double(settings.frameRate), 15...60,
+             { String(format: "%.0f fps", $0) },
+             { [weak self] in self?.settings.frameRate = $0 }),
         ]
         for (title, value, range, format, setter) in rows {
             let row = SliderRow(title: title, value: value, range: range,
@@ -326,7 +328,7 @@ final class SettingsPanel: NSPanel {
         let values: [Double] = [
             settings.tintIntensity, settings.contrast, settings.scanlineIntensity,
             settings.scanlinePitch, settings.curvature, settings.vignette,
-            settings.bloom, settings.flicker,
+            settings.bloom, settings.flicker, settings.frameRate,
         ]
         for (row, value) in zip(sliderRows, values) { row.update(value: value) }
     }

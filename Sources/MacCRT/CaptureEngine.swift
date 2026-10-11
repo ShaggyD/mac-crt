@@ -54,7 +54,8 @@ final class CaptureEngine {
     /// enough resampling to erase fine scanline patterns entirely.
     func start(targets: [CGDirectDisplayID: CGSize],
                excludingWindowNumbers: [CGWindowID],
-               includeCursor: Bool) {
+               includeCursor: Bool,
+               frameRate: Double) {
         guard streams.isEmpty else { return }
         generation += 1
         let gen = generation
@@ -78,7 +79,10 @@ final class CaptureEngine {
                     config.height = max(1, Int(pixelSize.height))
                     config.pixelFormat = kCVPixelFormatType_32BGRA
                     config.queueDepth = 3
-                    config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+                    // The frame interval is fixed when the stream is created, so a
+                    // change to this requires rebuilding the stream.
+                    let fps = min(max(frameRate, 1), 120)
+                    config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
                     // The real cursor is composited by the window server *above*
                     // every window, so when it is left visible it sits on top of
                     // this overlay untinted and at zero latency. To make the

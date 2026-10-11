@@ -84,6 +84,7 @@ happens.
 | Vignette | 0–100% | corner darkening |
 | Glow | 0–100% | cheap 8-tap phosphor bloom |
 | Flicker | 0–0.20 | |
+| Frame rate | 15–60 fps | **the main CPU lever** — see [Performance](#performance) |
 | True CRT engine | on/off | ScreenCaptureKit; needs Screen Recording |
 | CRT cursor | on/off | tints the pointer with the rest of the picture |
 
@@ -179,6 +180,44 @@ captured frame. Turn the switch off for a crisp native pointer.
 The pointer is only hidden while capture is genuinely painting it back; in every
 other state the real cursor stays visible.
 
+## Performance
+
+The capture stream is the frame clock, and that is the whole story.
+
+**SCStream delivers frames continuously even when the screen is completely
+static** — measured at ~57 fps on an unchanging desktop. So the app repaints the
+entire screen ~57 times a second whether or not anything has moved, and the
+window server pays to composite every one of those frames.
+
+This had a counter-intuitive consequence. The app used to drive rendering from a
+free-running 60 fps timer; removing it in favour of rendering on frame arrival
+changed nothing, because arrivals already happen at that rate. Flicker and glow
+settings also made no measurable difference. The only thing that matters is how
+many frames are presented.
+
+Measured cost of the whole system (macOS 27, arm64, 4112×2658):
+
+| Frame rate | MacCRT CPU | renders/s |
+|---|---|---|
+| 60 fps | 4.6% | 57.8 |
+| **30 fps (default)** | **2.8%** | 29.3 |
+| 15 fps | 1.2% | 14.8 |
+
+Glow (the 8-tap bloom) costs about 0.3% at 60 fps — it is not the problem, despite
+being the most expensive thing in the shader.
+
+WindowServer picks up roughly another 6% at 60 fps while compositing the overlay,
+so the frame rate is worth setting deliberately. **30 fps is the default**: it
+roughly halves CPU for a pointer that is still perfectly usable.
+
+Changing the frame rate rebuilds the capture streams, because the frame interval
+is fixed when a stream is created. The rebuild is debounced so dragging the
+slider costs one restart rather than dozens.
+
+On the **colour-table engine** there is no capture stream at all, so nothing
+renders unless a setting changes — it is effectively idle when the screen is
+static.
+
 ## Recovery
 
 A gamma table **outlives the process that set it**, and so does the cursor hide
@@ -201,7 +240,12 @@ running:
 MacCRT --check-access   # is Screen Recording granted?
 MacCRT --reset          # restore display colour state and cursor visibility
 MacCRT --selftest       # build Metal pipeline + settings panel, then exit
+MacCRT --selftest-capture  # bring capture up, change frame rate, verify rebuild
 ```
+
+`--selftest` is non-invasive. `--selftest-capture` is an integration test that
+briefly turns the effect on for real; it skips cleanly if Screen Recording is not
+granted. `MACCRT_STATS=1` logs the render rate to stderr every two seconds.
 
 `--check-access` run from a terminal reports the **terminal's** permission, not
 the app's: a directly-executed binary inherits the calling process's TCC

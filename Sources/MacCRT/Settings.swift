@@ -22,6 +22,13 @@ final class Settings {
     /// pointer is tinted and scanlined with everything else. Costs ~1 frame of
     /// lag. Only meaningful on the capture engine.
     var includeCursor: Bool = true       { didSet { changed() } }
+    /// Capture frame rate. The capture stream is the frame clock — SCStream
+    /// delivers frames continuously even when the screen is completely static —
+    /// so this single number scales the cost of the capture, the shader, and the
+    /// window-server composite that follows. Halving it roughly halves CPU.
+    /// Defaults to 30 rather than 60: it roughly halves CPU for a pointer that
+    /// is still perfectly usable, and the panel exposes the full range.
+    var frameRate: Double = 30           { didSet { changed() } }
 
     /// 0 = original colours, 1 = only the selected phosphor colour.
     /// On the capture engine this is a true saturation control.
@@ -47,6 +54,7 @@ final class Settings {
         var mode: CRTMode
         var useCaptureEngine: Bool
         var includeCursor: Bool?
+        var frameRate: Double?
         var tintIntensity: Double
         var contrast: Double?
         var scanlineIntensity: Double
@@ -59,12 +67,6 @@ final class Settings {
 
     private init() {
         load()
-    }
-
-    /// True when the renderer should drive frames continuously rather than
-    /// redrawing only on change. Flicker and live capture both need a clock.
-    var needsContinuousRendering: Bool {
-        enabled && (flicker > 0.0001 || useCaptureEngine)
     }
 
     /// Clamped view of the effect parameters, for handing to the renderer.
@@ -88,6 +90,7 @@ final class Settings {
         mode = .amber
         useCaptureEngine = false
         includeCursor = true
+        frameRate = 30
         tintIntensity = 1.00
         contrast = 1.00
         scanlineIntensity = 0.35
@@ -109,7 +112,7 @@ final class Settings {
     private func persist() {
         let snap = Snapshot(
             enabled: enabled, mode: mode, useCaptureEngine: useCaptureEngine,
-            includeCursor: includeCursor,
+            includeCursor: includeCursor, frameRate: frameRate,
             tintIntensity: tintIntensity, contrast: contrast,
             scanlineIntensity: scanlineIntensity,
             scanlinePitch: scanlinePitch, curvature: curvature,
@@ -129,6 +132,7 @@ final class Settings {
         useCaptureEngine = snap.useCaptureEngine
         // Absent in settings written before the cursor option existed.
         includeCursor = snap.includeCursor ?? true
+        frameRate = snap.frameRate ?? 30
         tintIntensity = snap.tintIntensity
         // Settings written before contrast existed default to neutral.
         contrast = snap.contrast ?? 1.0

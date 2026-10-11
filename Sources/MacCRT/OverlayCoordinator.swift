@@ -24,11 +24,23 @@ final class OverlayCoordinator {
     /// Tracks the last capture-engine request we acted on, so a failed stream is
     /// retried only when the user asks again rather than on every settings tick.
     private var appliedCaptureEngine = false
+    /// Frame rate the live stream was built with. The interval is fixed at stream
+    /// creation, so a change means rebuilding the stream.
+    private var appliedFrameRate: Double = 0
     private var isStartingCapture = false
     /// Re-entrancy guard. `sync()` can be reached from settings changes *and*
     /// from capture state changes, and without this the two call each other
     /// until the capture request never gets a chance to complete.
     private var syncing = false
+    /// Pending frame-rate rebuild, so one slider drag costs one stream restart.
+    private var frameRateWork: DispatchWorkItem?
+
+    /// Opt-in render-rate telemetry (`MACCRT_STATS=1`). Frame count is the thing
+    /// that actually drives cost here, so it is worth being able to see it.
+    private let statsEnabled = ProcessInfo.processInfo.environment["MACCRT_STATS"] != nil
+    private var renderedFrames = 0
+    private var statsWindowStart = Date()
+    private var skippedFrames = 0
 
     private(set) var captureState: CaptureState = .idle
     var onCaptureStateChange: ((CaptureState) -> Void)?
@@ -96,6 +108,8 @@ final class OverlayCoordinator {
             self.onCaptureStateChange?(state)
             self.recordCaptureState(state)
             self.updateCursorVisibility()
+            // The frame clock changes with the capture state.
+            self.updateClock()
         }
     }
 
@@ -160,7 +174,12 @@ final class OverlayCoordinator {
                     DisplayLUT.reset()
                     capture.start(targets: captureTargets(),
                                   excludingWindowNumbers: overlays.map { CGWindowID($0.windowNumber) },
-                                  includeCursor: settings.includeCursor)
+                                  includeCursor: settings.includeCursor,
+                                  frameRate: settings.frameRate)
+                    appliedFrameRate = settings.frameRate
+                } else if appliedFrameRate != settings.frameRate,
+                          captureState.isRunning || captureState == .starting {
+                    scheduleFrameRateRestart()
                 }
             } else if appliedCaptureEngine {
                 capture.stop()
@@ -212,6 +231,24 @@ final class OverlayCoordinator {
         DisplayLUT.apply(mode: settings.mode,
                          intensity: settings.tintIntensity,
                          contrast: settings.contrast)
+    }
+
+    /// The frame interval is fixed when a stream is created, so changing it means
+    /// rebuilding every stream. A slider drag emits a change per tick, so debounce
+    /// it — otherwise one drag tears down and restarts capture dozens of times.
+    private func scheduleFrameRateRestart() {
+        appliedFrameRate = settings.frameRate
+        frameRateWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.settings.enabled, self.settings.useCaptureEngine else { return }
+            self.capture.stop()
+            self.latestFrames.removeAll()
+            self.appliedCaptureEngine = false
+            self.isStartingCapture = false
+            self.sync()
+        }
+        frameRateWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     func shutdown() {
@@ -283,15 +320,31 @@ final class OverlayCoordinator {
             if settings.useCaptureEngine {
                 overlay.setOpaqueRendering(true)
             }
+            // Draw on arrival. The capture stream is the frame clock, so a still
+            // screen costs nothing.
+            render(overlay)
         }
     }
 
     // MARK: - Rendering
 
     private func updateClock() {
-        if settings.needsContinuousRendering {
+        // The capture stream is its own frame clock. SCStream only delivers a
+        // frame when the display content actually changes, so driving renders
+        // from arrivals costs nothing while the screen sits still.
+        //
+        // A free-running timer here was the single biggest cost in the app: it
+        // repainted the entire screen 60 times a second whether or not anything
+        // had moved, and the window server paid to composite every one of those
+        // frames. Flicker and glow settings made no measurable difference
+        // because the timer ran regardless.
+        //
+        // The timer is now needed only to animate flicker when there is no
+        // capture stream for it to ride along with.
+        let needsTimer = settings.enabled && settings.flicker > 0.0001 && !captureState.isRunning
+        if needsTimer {
             guard timer == nil else { return }
-            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
                 self?.renderAll()
             }
             RunLoop.main.add(timer, forMode: .common)
@@ -312,7 +365,10 @@ final class OverlayCoordinator {
         let layer = overlay.metalView.metalLayer
         guard layer.drawableSize.width > 0, layer.drawableSize.height > 0 else { return }
         guard let drawable = layer.nextDrawable(),
-              let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+              let commandBuffer = commandQueue.makeCommandBuffer() else {
+            skippedFrames += 1
+            return
+        }
 
         var sourceTexture: MTLTexture?
         var retainedCVTexture: CVMetalTexture?
@@ -354,6 +410,18 @@ final class OverlayCoordinator {
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
+
+        if statsEnabled {
+            renderedFrames += 1
+            let elapsed = Date().timeIntervalSince(statsWindowStart)
+            if elapsed >= 2.0 {
+                NSLog("MacCRT: renders %.1f/s (drawable-starved %d)",
+                      Double(renderedFrames) / elapsed, skippedFrames)
+                renderedFrames = 0
+                skippedFrames = 0
+                statsWindowStart = Date()
+            }
+        }
     }
 
     private func makeParams(drawableSize: CGSize,
