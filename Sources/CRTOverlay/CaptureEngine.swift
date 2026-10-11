@@ -1,0 +1,157 @@
+import Foundation
+import CoreMedia
+import CoreVideo
+import ScreenCaptureKit
+
+enum CaptureState: Equatable {
+    case idle
+    case starting
+    case running
+    case failed(String)
+
+    var isRunning: Bool { self == .running }
+}
+
+/// ScreenCaptureKit wrapper: one `SCStream` per display.
+///
+/// This is the only mechanism on macOS that yields the real composited desktop
+/// as pixels, which is what makes true per-pixel desaturation possible.
+final class CaptureEngine {
+
+    var onFrame: ((CGDirectDisplayID, CVPixelBuffer) -> Void)?
+    var onStateChange: ((CaptureState) -> Void)?
+
+    private(set) var state: CaptureState = .idle
+
+    private var streams: [CGDirectDisplayID: SCStream] = [:]
+    private var sinks: [CGDirectDisplayID: StreamSink] = [:]
+    private let sampleQueue = DispatchQueue(label: "com.dchadwick.crtoverlay.capture",
+                                            qos: .userInteractive)
+    private var generation = 0
+
+    private func setState(_ new: CaptureState) {
+        // Idempotent: state changes fan out to the menu and panel, so re-asserting
+        // the same value on every settings tick would churn the UI for nothing.
+        guard state != new else { return }
+        state = new
+        NSLog("CRTOverlay: capture state -> %@", String(describing: new))
+        onStateChange?(new)
+    }
+
+    /// Ask the system for Screen Recording permission without starting a stream.
+    static func hasPermission() -> Bool { CGPreflightScreenCaptureAccess() }
+
+    /// Triggers the one-time system prompt if permission has not been granted.
+    @discardableResult
+    static func requestPermission() -> Bool { CGRequestScreenCaptureAccess() }
+
+    func start(displayIDs: [CGDirectDisplayID], excludingWindowNumbers: [CGWindowID]) {
+        guard streams.isEmpty else { return }
+        generation += 1
+        let gen = generation
+        setState(.starting)
+
+        Task {
+            do {
+                let content = try await SCShareableContent.current
+                let excluded = content.windows.filter { excludingWindowNumbers.contains($0.windowID) }
+
+                for id in displayIDs {
+                    guard gen == self.generation else { return }
+                    guard let display = content.displays.first(where: { $0.displayID == id }) else {
+                        NSLog("CRTOverlay: no SCDisplay for display %u", id)
+                        continue
+                    }
+
+                    let filter = SCContentFilter(display: display, excludingWindows: excluded)
+                    let config = SCStreamConfiguration()
+                    config.width = Int(CGDisplayPixelsWide(id))
+                    config.height = Int(CGDisplayPixelsHigh(id))
+                    config.pixelFormat = kCVPixelFormatType_32BGRA
+                    config.queueDepth = 3
+                    config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+                    // The real cursor is composited by the window server *above*
+                    // every window, so it already appears on top of our overlay at
+                    // zero latency. Baking it into the captured frame would add a
+                    // lagging duplicate.
+                    config.showsCursor = false
+
+                    let sink = StreamSink(displayID: id, engine: self)
+                    let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+                    try stream.addStreamOutput(sink, type: .screen, sampleHandlerQueue: self.sampleQueue)
+
+                    self.sinks[id] = sink
+                    try await stream.startCapture()
+                    self.streams[id] = stream
+                }
+
+                guard gen == self.generation else { return }
+                self.setState(self.streams.isEmpty ? .failed("No capturable displays") : .running)
+            } catch {
+                // Leave no half-open streams behind, so a later retry can start clean.
+                self.streams.removeAll()
+                self.sinks.removeAll()
+                guard gen == self.generation else { return }
+                self.setState(.failed(Self.describe(error)))
+            }
+        }
+    }
+
+    func stop() {
+        generation += 1
+        let active = streams
+        streams.removeAll()
+        sinks.removeAll()
+        for (_, stream) in active {
+            Task { try? await stream.stopCapture() }
+        }
+        setState(.idle)
+    }
+
+    fileprivate func deliver(_ buffer: CVPixelBuffer, for displayID: CGDirectDisplayID) {
+        DispatchQueue.main.async { [weak self] in
+            self?.onFrame?(displayID, buffer)
+        }
+    }
+
+    private static func describe(_ error: Error) -> String {
+        if let sc = error as? SCStreamError {
+            switch sc.code {
+            case .userDeclined:
+                return "Screen Recording permission was declined."
+            default:
+                return "Capture failed (\(sc.code.rawValue)): \(sc.localizedDescription)"
+            }
+        }
+        return error.localizedDescription
+    }
+}
+
+/// `SCStreamOutput` needs an object conformance, and we need to know which
+/// display a given stream belongs to, so each stream gets its own sink.
+private final class StreamSink: NSObject, SCStreamOutput {
+    let displayID: CGDirectDisplayID
+    weak var engine: CaptureEngine?
+
+    init(displayID: CGDirectDisplayID, engine: CaptureEngine) {
+        self.displayID = displayID
+        self.engine = engine
+    }
+
+    func stream(_ stream: SCStream,
+                didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+                of type: SCStreamOutputType) {
+        guard type == .screen else { return }
+        // Skip frames the system marks as not-yet-complete, which otherwise show
+        // up as torn/blank frames during window resizes.
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer,
+                                                                        createIfNecessary: false)
+                as? [[SCStreamFrameInfo: Any]],
+              let statusRaw = attachments.first?[.status] as? Int,
+              let status = SCFrameStatus(rawValue: statusRaw),
+              status == .complete
+        else { return }
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        engine?.deliver(pixelBuffer, for: displayID)
+    }
+}
