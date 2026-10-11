@@ -2,12 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "CRTOverlay",
+    name: "MacCRT",
     platforms: [.macOS(.v14)],
+    products: [
+        .executable(name: "MacCRT", targets: ["MacCRT"])
+    ],
     targets: [
         .executableTarget(
-            name: "CRTOverlay",
-            path: "Sources/CRTOverlay"
+            name: "MacCRT",
+            path: "Sources/MacCRT"
         )
     ]
 )

@@ -39,12 +39,12 @@ final class OverlayCoordinator {
 
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
-            throw NSError(domain: "CRTOverlay", code: 1,
+            throw NSError(domain: "MacCRT", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "No Metal device available."])
         }
         self.device = device
         guard let queue = device.makeCommandQueue() else {
-            throw NSError(domain: "CRTOverlay", code: 2,
+            throw NSError(domain: "MacCRT", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "Could not create a Metal command queue."])
         }
         self.commandQueue = queue
@@ -52,7 +52,7 @@ final class OverlayCoordinator {
         let library = try device.makeLibrary(source: CRTShader.source, options: nil)
         guard let vertexFunction = library.makeFunction(name: "crt_vertex"),
               let fragmentFunction = library.makeFunction(name: "crt_fragment") else {
-            throw NSError(domain: "CRTOverlay", code: 3,
+            throw NSError(domain: "MacCRT", code: 3,
                           userInfo: [NSLocalizedDescriptionKey: "Shader functions missing from library."])
         }
 
@@ -65,7 +65,7 @@ final class OverlayCoordinator {
         var cache: CVMetalTextureCache?
         let cacheStatus = CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
         guard cacheStatus == kCVReturnSuccess, let created = cache else {
-            throw NSError(domain: "CRTOverlay", code: 4,
+            throw NSError(domain: "MacCRT", code: 4,
                           userInfo: [NSLocalizedDescriptionKey: "Could not create a Metal texture cache."])
         }
         self.textureCache = created
@@ -105,7 +105,7 @@ final class OverlayCoordinator {
     private func recordCaptureState(_ state: CaptureState) {
         let dir = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("CRTOverlay", isDirectory: true)
+            .appendingPathComponent("MacCRT", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let text: String
         switch state {

@@ -34,7 +34,7 @@ final class CaptureEngine {
         // the same value on every settings tick would churn the UI for nothing.
         guard state != new else { return }
         state = new
-        NSLog("CRTOverlay: capture state -> %@", String(describing: new))
+        NSLog("MacCRT: capture state -> %@", String(describing: new))
         onStateChange?(new)
     }
 
@@ -68,7 +68,7 @@ final class CaptureEngine {
                 for (id, pixelSize) in targets {
                     guard gen == self.generation else { return }
                     guard let display = content.displays.first(where: { $0.displayID == id }) else {
-                        NSLog("CRTOverlay: no SCDisplay for display %u", id)
+                        NSLog("MacCRT: no SCDisplay for display %u", id)
                         continue
                     }
 

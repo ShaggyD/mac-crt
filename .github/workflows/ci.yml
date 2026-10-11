@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Build (release)
+        run: swift build -c release
+
+      - name: Assemble app bundle
+        run: ./scripts/build-app.sh release
+
+      - name: Verify bundle
+        run: |
+          set -eu
+          APP="build/Mac CRT.app"
+          test -x "$APP/Contents/MacOS/MacCRT"
+          test -f "$APP/Contents/Info.plist"
+          ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")
+          test "$ID" = "com.shaggyd.maccrt"
+          echo "bundle ok: $ID"
+
+      - name: Self-test
+        # Builds the Metal pipeline and constructs the settings panel across all
+        # modes. Needs a Metal device, which headless runners normally expose via
+        # a paravirtual GPU, but a missing GPU should not fail the build.
+        continue-on-error: true
+        run: '"build/Mac CRT.app/Contents/MacOS/MacCRT" --selftest'

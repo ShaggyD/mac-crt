@@ -72,7 +72,7 @@ enum DisplayLUT {
             if err == .success {
                 touched.insert(id)
             } else {
-                NSLog("CRTOverlay: CGSetDisplayTransferByTable failed for display %u (CGError %d)",
+                NSLog("MacCRT: CGSetDisplayTransferByTable failed for display %u (CGError %d)",
                       id, err.rawValue)
             }
         }

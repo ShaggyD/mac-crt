@@ -39,7 +39,7 @@ final class Settings {
     var flicker: Double = 0.03           { didSet { changed() } }
 
     private let defaults = UserDefaults.standard
-    private static let key = "CRTOverlay.Settings.v1"
+    private static let key = "MacCRT.Settings.v1"
     private var loading = false
 
     private struct Snapshot: Codable {
