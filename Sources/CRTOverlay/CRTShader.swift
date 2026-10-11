@@ -10,7 +10,7 @@ struct CRTParams {
     var effects: SIMD4<Float> = .zero
     /// x = bloom, y = flicker, z = time, w = 1 when a captured frame is bound
     var post: SIMD4<Float> = .zero
-    /// x = width, y = height in pixels
+    /// x = width, y = height in pixels, z = contrast, w unused
     var size: SIMD4<Float> = .zero
 }
 
@@ -56,6 +56,13 @@ enum CRTShader {
 
         bool hasCapture = P.post.w > 0.5;
 
+        // Straight, un-warped screen coordinate. Scanlines are anchored to this
+        // rather than to the barrel-warped uv, like a shadow mask fixed to the
+        // tube: the lines stay parallel and evenly spaced however the picture
+        // bulges. Deriving them from the warped uv made the local period drift
+        // across the screen and beat into a moire haze.
+        float2 screenUV = in.uv;
+
         float2 uv = in.uv;
         float2 centered = uv - 0.5;
         float r2 = dot(centered, centered);
@@ -74,11 +81,22 @@ enum CRTShader {
         uv = 0.5 + centered * radial;
 
         // --- shading shared by both engines ---
+        //
+        // Scanline pitch is snapped to a whole number of device pixels so the
+        // pattern lands exactly on the pixel grid instead of aliasing.
+        //
+        // The phase uses the *integer* row, not the pixel-centre coordinate.
+        // At pitch 2 the centres sit at fract(0.25)/fract(0.75), and cos(2*pi*)
+        // is zero at both — so every row received an identical profile and the
+        // scanlines vanished into a flat 50% dim. Whole rows give 0, 0.5, 0, 0.5
+        // and the pattern survives.
         float scan = 1.0;
         if (P.effects.x > 0.0) {
-            float pitch = max(P.effects.y, 1.0);
-            float s = sin(uv.y * P.size.y / pitch * M_PI_F);
-            scan = 1.0 - P.effects.x * 0.5 * (1.0 - s);
+            float pitch = max(2.0, round(P.effects.y));
+            float row = floor(screenUV.y * P.size.y);
+            float phase = fract(row / pitch);
+            float profile = 0.5 + 0.5 * cos(phase * 6.28318530718);
+            scan = 1.0 - P.effects.x * (1.0 - profile);
         }
         float vig = clamp(1.0 - P.effects.w * r2 * 2.6, 0.0, 1.0);
         float flick = 1.0 - P.post.y * (0.5 + 0.5 * sin(P.post.z * 41.0));
@@ -106,9 +124,14 @@ enum CRTShader {
             c += P.post.x * max(glow - 0.35, 0.0) * 1.6;
         }
 
-        // True per-pixel desaturation. This is the step the LUT engine cannot do.
+        // True per-pixel desaturation. At tint intensity 1.0 this leaves only
+        // the phosphor colour: every pixel becomes tint * luminance.
         float lum = dot(c, float3(0.2126, 0.7152, 0.0722));
         c = mix(c, P.tint.rgb * lum, P.tint.w);
+
+        // Contrast, pivoted at mid grey. Applied after the tint so it can undo
+        // the flat look heavy desaturation produces.
+        c = clamp((c - 0.5) * P.size.z + 0.5, 0.0, 1.0);
 
         c *= scan * vig * flick;
         return float4(clamp(c, 0.0, 1.0), 1.0);

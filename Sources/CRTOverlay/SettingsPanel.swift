@@ -154,8 +154,12 @@ final class SettingsPanel: NSPanel {
 
         // Effect parameters
         let rows: [(String, Double, ClosedRange<Double>, (Double) -> String, (Double) -> Void)] = [
-            ("Tint", Double(settings.tintIntensity), 0...1, { String(format: "%.0f%%", $0 * 100) },
+            ("Colour strength", Double(settings.tintIntensity), 0...1,
+             { String(format: "%.0f%%", $0 * 100) },
              { [weak self] in self?.settings.tintIntensity = $0 }),
+            ("Contrast", Double(settings.contrast), 0.5...2.0,
+             { String(format: "%.2fx", $0) },
+             { [weak self] in self?.settings.contrast = $0 }),
             ("Scanlines", Double(settings.scanlineIntensity), 0...1, { String(format: "%.0f%%", $0 * 100) },
              { [weak self] in self?.settings.scanlineIntensity = $0 }),
             ("Line pitch", Double(settings.scanlinePitch), 1...8, { String(format: "%.1f px", $0) },
@@ -175,6 +179,16 @@ final class SettingsPanel: NSPanel {
             sliderRows.append(row)
             root.addArrangedSubview(row)
         }
+
+        let hint = NSTextField(labelWithString:
+            "Colour strength 0% keeps the original colours; 100% leaves only the "
+            + "phosphor colour. On the colour-table engine the slider can only "
+            + "cast, never fully replace colours.")
+        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.textColor = .tertiaryLabelColor
+        hint.preferredMaxLayoutWidth = 360
+        hint.lineBreakMode = .byWordWrapping
+        root.addArrangedSubview(hint)
 
         root.addArrangedSubview(separator())
         let resetButton = NSButton(title: "Reset to defaults", target: self,
@@ -279,8 +293,9 @@ final class SettingsPanel: NSPanel {
 
     private func rebuildSliderValues() {
         let values: [Double] = [
-            settings.tintIntensity, settings.scanlineIntensity, settings.scanlinePitch,
-            settings.curvature, settings.vignette, settings.bloom, settings.flicker,
+            settings.tintIntensity, settings.contrast, settings.scanlineIntensity,
+            settings.scanlinePitch, settings.curvature, settings.vignette,
+            settings.bloom, settings.flicker,
         ]
         for (row, value) in zip(sliderRows, values) { row.update(value: value) }
     }

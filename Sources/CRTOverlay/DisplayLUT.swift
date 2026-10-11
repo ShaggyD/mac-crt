@@ -27,10 +27,12 @@ enum DisplayLUT {
         return Array(list.prefix(Int(count)))
     }
 
-    /// Push every active display toward `mode`'s tint by `intensity` (0...1).
-    static func apply(mode: CRTMode, intensity: Double) {
+    /// Push every active display toward `mode`'s tint by `intensity` (0...1),
+    /// with `contrast` applied after the tint, pivoted at mid grey.
+    static func apply(mode: CRTMode, intensity: Double, contrast: Double = 1.0) {
         let k = min(max(intensity, 0), 1)
         let tint = mode.tint
+        let gain = min(max(contrast, 0.25), 3.0)
 
         // Build one curve per channel: g(x) = lo + (1-lo)*x, then scaled by the
         // tint. The lifted floor is what pulls pure blue toward the tint — it is
@@ -46,7 +48,9 @@ enum DisplayLUT {
                 let target = t * lifted
                 // Blend against identity by k so intensity 0 is a true no-op.
                 let blended = (1.0 - k) * x + k * target
-                return CGGammaValue(min(1.0, max(0.0, blended)))
+                // Contrast last, so it can counter the wash from the lift above.
+                let contrasted = 0.5 + (blended - 0.5) * gain
+                return CGGammaValue(min(1.0, max(0.0, contrasted)))
             }
         }
 

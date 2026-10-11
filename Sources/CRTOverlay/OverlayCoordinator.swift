@@ -126,7 +126,7 @@ final class OverlayCoordinator {
                     // Capture owns colour from here; drop the LUT up front so the
                     // two are never applied to the same frame.
                     DisplayLUT.reset()
-                    capture.start(displayIDs: overlays.compactMap { displayID(of: $0) },
+                    capture.start(targets: captureTargets(),
                                   excludingWindowNumbers: overlays.map { CGWindowID($0.windowNumber) })
                 }
             } else if appliedCaptureEngine {
@@ -160,7 +160,9 @@ final class OverlayCoordinator {
     private func applyFallbackColour() {
         guard settings.enabled, !captureState.isRunning else { return }
         for overlay in overlays { overlay.setOpaqueRendering(false) }
-        DisplayLUT.apply(mode: settings.mode, intensity: settings.tintIntensity)
+        DisplayLUT.apply(mode: settings.mode,
+                         intensity: settings.tintIntensity,
+                         contrast: settings.contrast)
     }
 
     func shutdown() {
@@ -195,6 +197,18 @@ final class OverlayCoordinator {
     private func displayID(of window: NSWindow) -> CGDirectDisplayID? {
         guard let screen = window.screen else { return nil }
         return Self.displayID(of: screen)
+    }
+
+    /// Native backing pixel size per display, so capture and drawable match 1:1.
+    private func captureTargets() -> [CGDirectDisplayID: CGSize] {
+        var targets: [CGDirectDisplayID: CGSize] = [:]
+        for overlay in overlays {
+            guard let id = displayID(of: overlay), let screen = overlay.screen else { continue }
+            let scale = screen.backingScaleFactor
+            targets[id] = CGSize(width: screen.frame.width * scale,
+                                 height: screen.frame.height * scale)
+        }
+        return targets
     }
 
     static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
@@ -301,7 +315,7 @@ final class OverlayCoordinator {
         params.post = SIMD4(n.bloom, n.flicker,
                             Float(CACurrentMediaTime().truncatingRemainder(dividingBy: 1000)),
                             hasCapture ? 1 : 0)
-        params.size = SIMD4(Float(drawableSize.width), Float(drawableSize.height), 0, 0)
+        params.size = SIMD4(Float(drawableSize.width), Float(drawableSize.height), n.contrast, 0)
         return params
     }
 }

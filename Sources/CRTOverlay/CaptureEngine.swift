@@ -45,7 +45,15 @@ final class CaptureEngine {
     @discardableResult
     static func requestPermission() -> Bool { CGRequestScreenCaptureAccess() }
 
-    func start(displayIDs: [CGDirectDisplayID], excludingWindowNumbers: [CGWindowID]) {
+    /// `targets` maps each display to the pixel size to capture at.
+    ///
+    /// This must be the *backing* size (points x backingScaleFactor), not
+    /// `CGDisplayPixelsWide`. On a HiDPI panel that call returns the logical
+    /// width in points, so using it captured at half resolution and let the
+    /// compositor upscale 2x into the drawable — a uniformly soft picture, and
+    /// enough resampling to erase fine scanline patterns entirely.
+    func start(targets: [CGDirectDisplayID: CGSize],
+               excludingWindowNumbers: [CGWindowID]) {
         guard streams.isEmpty else { return }
         generation += 1
         let gen = generation
@@ -56,7 +64,7 @@ final class CaptureEngine {
                 let content = try await SCShareableContent.current
                 let excluded = content.windows.filter { excludingWindowNumbers.contains($0.windowID) }
 
-                for id in displayIDs {
+                for (id, pixelSize) in targets {
                     guard gen == self.generation else { return }
                     guard let display = content.displays.first(where: { $0.displayID == id }) else {
                         NSLog("CRTOverlay: no SCDisplay for display %u", id)
@@ -65,8 +73,8 @@ final class CaptureEngine {
 
                     let filter = SCContentFilter(display: display, excludingWindows: excluded)
                     let config = SCStreamConfiguration()
-                    config.width = Int(CGDisplayPixelsWide(id))
-                    config.height = Int(CGDisplayPixelsHigh(id))
+                    config.width = max(1, Int(pixelSize.width))
+                    config.height = max(1, Int(pixelSize.height))
                     config.pixelFormat = kCVPixelFormatType_32BGRA
                     config.queueDepth = 3
                     config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
