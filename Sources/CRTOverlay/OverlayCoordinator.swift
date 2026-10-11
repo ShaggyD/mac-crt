@@ -29,9 +29,6 @@ final class OverlayCoordinator {
     /// from capture state changes, and without this the two call each other
     /// until the capture request never gets a chance to complete.
     private var syncing = false
-    /// Screen Recording can only be requested on the main thread, and asking on
-    /// every settings tick would spam the user, so ask once per launch.
-    private var didRequestCapturePermission = false
 
     private(set) var captureState: CaptureState = .idle
     var onCaptureStateChange: ((CaptureState) -> Void)?
@@ -149,15 +146,11 @@ final class OverlayCoordinator {
             ensureOverlays()
 
             let wantCapture = settings.useCaptureEngine
-            if wantCapture && !CaptureEngine.hasPermission() {
-                // Nudge the system into showing its prompt and, more importantly,
-                // listing the app under Privacy & Security > Screen Recording.
-                // Without this the grant is unreachable for a bundled app.
-                if !didRequestCapturePermission {
-                    didRequestCapturePermission = true
-                    CaptureEngine.requestPermission()
-                }
-            }
+            // Deliberately no automatic permission request here. CGRequestScreenCaptureAccess()
+            // blocks until the user answers, and sync() runs on the main thread
+            // during startup — so asking automatically freezes the app with no
+            // menu and no way to respond. The prompt is triggered from the menu
+            // and the panel instead, where a human is actually waiting for it.
             if wantCapture {
                 if !appliedCaptureEngine && !isStartingCapture {
                     isStartingCapture = true
